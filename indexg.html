@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universe Particle System</title>
+    <style>
+        /* Deep Space Theme */
+        body { margin: 0; overflow: hidden; background-color: #02020a; font-family: 'Segoe UI', sans-serif; }
+        canvas { display: block; }
+        
+        /* UI Overlay */
+        #ui {
+            position: absolute; top: 20px; left: 20px; color: #add8e6;
+            background: rgba(20, 20, 40, 0.7); padding: 20px; border-radius: 12px;
+            pointer-events: none; user-select: none; border: 1px solid rgba(100,100,255,0.3);
+            backdrop-filter: blur(10px); box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .instruction { font-size: 0.9rem; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+        .highlight { color: #ffcc00; font-weight: bold;}
+        #status { font-weight: bold; margin-top: 15px; color: #ffcc00; text-transform: uppercase; letter-spacing: 1px; font-size: 0.8rem;}
+
+        /* Shape Controls */
+        #controls {
+            position: absolute; top: 20px; right: 20px;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        button {
+            background: rgba(40, 40, 80, 0.5); border: 1px solid rgba(100,100,255,0.5); 
+            color: #add8e6; padding: 12px 24px; cursor: pointer; border-radius: 6px; 
+            transition: 0.3s; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 1px;
+        }
+        button:hover { background: rgba(100, 100, 255, 0.8); color: white; box-shadow: 0 0 15px rgba(100,100,255,0.5); }
+
+        /* Camera Preview */
+        #video-container {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 180px; height: 135px;
+            border-radius: 12px; overflow: hidden;
+            border: 2px solid rgba(100, 100, 255, 0.5);
+            background: #000; z-index: 10; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .input_video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div class="instruction">☝️ <b>1 Hand Move</b>: Rotate & Color Change</div>
+        <div class="instruction">👌 <b>1 Hand Pinch/Open</b>: Implode / Explode</div>
+        <div class="instruction"><span class="highlight">🙌 2 Hands Open Wide</span>: Universe Merge!</div>
+        <div id="status">Intializing Core...</div>
+    </div>
+
+    <div id="controls">
+        <button onclick="setShape('sphere')">Sphere</button>
+        <button onclick="setShape('heart')">Heart</button>
+        <button onclick="setShape('saturn')">Saturn</button>
+        <button onclick="setShape('cube')">Cube</button>
+        <button onclick="setShape('om')">OM Symbol</button>
+    </div>
+
+    <div id="video-container">
+        <video class="input_video" playsinline></video>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+    <script>
+        // --- CONFIGURATION ---
+        const PARTICLE_COUNT = 5000;
+        const PARTICLE_SIZE = 0.18;
+        const CAM_Z = 40;
+
+        // --- THREE.JS SETUP (UNIVERSE THEME) ---
+        const scene = new THREE.Scene();
+        // Deep space fog
+        scene.fog = new THREE.FogExp2(0x02020a, 0.015); 
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        // Deep space background color
+        renderer.setClearColor(scene.fog.color); 
+        document.body.appendChild(renderer.domElement);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.z = CAM_Z;
+
+        // --- BACKGROUND STARS ---
+        const starGeo = new THREE.BufferGeometry();
+        const starPos = new Float32Array(3000 * 3);
+        for(let i=0; i<3000*3; i++) starPos[i] = (Math.random() - 0.5) * 1000;
+        starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+        const starMat = new THREE.PointsMaterial({color: 0xaaaaaa, size: 0.7, transparent: true, opacity: 0.6});
+        const starField = new THREE.Points(starGeo, starMat);
+        scene.add(starField);
+
+        // --- MAIN PARTICLE SYSTEM ---
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(PARTICLE_COUNT * 3);
+        const colors = new Float32Array(PARTICLE_COUNT * 3);
+        const velocities = new Float32Array(PARTICLE_COUNT * 3); // For universe merge
+        const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
+
+        // Initialize particles
+        const colorObj = new THREE.Color();
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            // Start scattered
+            positions[i * 3] = (Math.random() - 0.5) * 100;
+            positions[i * 3 + 1] = (Math.random() - 0.5) * 100;
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 100;
+            
+            // Initial bluish colors
+            colorObj.setHSL(0.6 + Math.random()*0.1, 0.8, 0.6);
+            colors[i * 3] = colorObj.r;
+            colors[i * 3 + 1] = colorObj.g;
+            colors[i * 3 + 2] = colorObj.b;
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        // Soft glow texture
+        const sprite = new THREE.TextureLoader().load('https://threejs.org/examples/textures/sprites/disc.png');
+        const material = new THREE.PointsMaterial({
+            size: PARTICLE_SIZE, map: sprite, vertexColors: true,
+            blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9
+        });
+        const particles = new THREE.Points(geometry, material);
+        scene.add(particles);
+
+        // --- SHAPE GENERATORS ---
+        function getPointOnSphere(i) {
+            const r = 12;
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos((Math.random() * 2) - 1);
+            return { x: r * Math.sin(phi) * Math.cos(theta), y: r * Math.sin(phi) * Math.sin(theta), z: r * Math.cos(phi) };
+        }
+
+        function getPointOnHeart(i) {
+            const t = Math.random() * Math.PI * 2;
+            const s = 0.7;
+            let x = 16 * Math.pow(Math.sin(t), 3);
+            let y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+            return { x: x * s, y: y * s, z: (Math.random() - 0.5) * 5 };
+        }
+
+        function getPointOnSaturn(i) {
+            const r1 = i / PARTICLE_COUNT;
+            if (r1 < 0.6) { // Planet
+                const p = getPointOnSphere(i); return {x:p.x*0.7, y:p.y*0.7, z:p.z*0.7};
+            } else { // Rings
+                const a = Math.random() * Math.PI * 2;
+                const r = 14 + Math.random() * 8; 
+                return { x: r * Math.cos(a), y: (Math.random() - 0.5) * 0.8, z: r * Math.sin(a) };
+            }
+        }
+
+        function getPointOnCube(i) {
+            const s = 10; // half side length
+            // Distribute randomly inside a cube volume
+            return { 
+                x: (Math.random() - 0.5) * 2 * s,
+                y: (Math.random() - 0.5) * 2 * s,
+                z: (Math.random() - 0.5) * 2 * s
+            };
+        }
+
+        // Approximate OM symbol using combined mathematical curves
+        function getPointOnOM(i) {
+            const r = Math.random();
+            let x,y,z = (Math.random()-0.5)*3;
+            const s = 1.8; // scale
+            if(r < 0.35) { // Lower curve (big arc)
+                 const t = 0.2 + Math.random() * (Math.PI * 1.3);
+                 x = 6 * Math.cos(t) - 2; y = 6 * Math.sin(t) - 3;
+            } else if (r < 0.65) { // Middle circle loop
+                 const t = Math.random() * Math.PI * 2;
+                 x = 3.5 * Math.cos(t) + 3; y = 3.5 * Math.sin(t) + 1;
+            } else if (r < 0.85) { // Tail curve
+                 const t = Math.PI * 0.1 + Math.random() * Math.PI * 0.8;
+                 x = 5 * Math.cos(t) + 5; y = 5 * Math.sin(t) - 5;
+            } else { // Dot & Crescent (simplified to top bits)
+                 const t = Math.random() * Math.PI * 2;
+                 x = (Math.random()*3 + 2) * Math.cos(t) + 3; 
+                 y = (Math.random()*1.5) * Math.sin(t) + 9;
+            }
+            return {x:x*s, y:y*s, z:z};
+        }
+
+        let currentShapeFunc = getPointOnSphere;
+        function setShape(type) {
+            switch(type) {
+                case 'heart': currentShapeFunc = getPointOnHeart; break;
+                case 'saturn': currentShapeFunc = getPointOnSaturn; break;
+                case 'cube': currentShapeFunc = getPointOnCube; break;
+                case 'om': currentShapeFunc = getPointOnOM; break;
+                default: currentShapeFunc = getPointOnSphere;
+            }
+            recalcTargets();
+        }
+        function recalcTargets() {
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const p = currentShapeFunc(i);
+                targetPositions[i * 3] = p.x;
+                targetPositions[i * 3 + 1] = p.y;
+                targetPositions[i * 3 + 2] = p.z;
+            }
+        }
+        setShape('sphere');
+
+        // --- MEDIAPIPE LOGIC ---
+        let numHands = 0;
+        let hand1Pos = {x:0, y:0}, pinch1 = 0;
+        let pinch2 = 0;
+        let isUniverseMergeMode = false;
+
+        function onResults(results) {
+            numHands = results.multiHandLandmarks ? results.multiHandLandmarks.length : 0;
+            const status = document.getElementById('status');
+
+            if (numHands === 0) {
+                status.innerText = "Waiting for Input..."; status.style.color = "#ffcc00";
+                isUniverseMergeMode = false;
+            } else if (numHands === 1) {
+                status.innerText = "1 Hand Linked"; status.style.color = "#00ffcc";
+                isUniverseMergeMode = false;
+                // Extract Hand 1 data for rotation/color/pinch
+                const lm = results.multiHandLandmarks[0];
+                hand1Pos.x = (lm[0].x - 0.5) * 2; 
+                hand1Pos.y = (lm[0].y - 0.5) * 2;
+                pinch1 = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+            } else if (numHands === 2) {
+                status.innerText = "2 Hands Linked"; status.style.color = "#ff00ff";
+                // Extract pinch data for both to check for "Universe Merge" gesture
+                const lm1 = results.multiHandLandmarks[0];
+                const lm2 = results.multiHandLandmarks[1];
+                pinch1 = Math.hypot(lm1[4].x - lm1[8].x, lm1[4].y - lm1[8].y);
+                pinch2 = Math.hypot(lm2[4].x - lm2[8].x, lm2[4].y - lm2[8].y);
+
+                // GESTURE TRIGGER: If both hands are open wide (>0.18 distance roughly)
+                if (pinch1 > 0.18 && pinch2 > 0.18) {
+                    if(!isUniverseMergeMode) {
+                        // Start the merge sequence: calculate outward velocities
+                        isUniverseMergeMode = true;
+                        status.innerText = "UNIVERSE MERGE!";
+                        const posArr = geometry.attributes.position.array;
+                        for(let i=0; i < PARTICLE_COUNT; i++) {
+                             // Velocity vector away from center
+                             velocities[i*3] = posArr[i*3] * 0.02 * (Math.random()+0.5);
+                             velocities[i*3+1] = posArr[i*3+1] * 0.02 * (Math.random()+0.5);
+                             velocities[i*3+2] = posArr[i*3+2] * 0.02 * (Math.random()+0.5);
+                        }
+                    }
+                } else {
+                    // If hands close, cancel merge
+                    isUniverseMergeMode = false;
+                }
+            }
+        }
+
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 2, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        hands.onResults(onResults);
+
+        const cameraUtils = new Camera(document.getElementsByClassName('input_video')[0], {
+            onFrame: async () => { await hands.send({image: document.getElementsByClassName('input_video')[0]}); },
+            width: 320, height: 240
+        });
+        cameraUtils.start();
+
+        // --- ANIMATION LOOP ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+            const posArr = geometry.attributes.position.array;
+            const colArr = geometry.attributes.color.array;
+
+            // Slowly rotate starfield
+            starField.rotation.y += 0.0005;
+
+            if (isUniverseMergeMode) {
+                // --- UNIVERSE MERGE BEHAVIOR ---
+                // Move outwards based on calculated velocities and fade out
+                particles.rotation.y += 0.01; // Spin faster during merge
+                material.opacity *= 0.96; // Fade out
+                for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
+                    posArr[i] += velocities[i] * (1 + time*0.1); // Accelerate outwards
+                }
+
+            } else {
+                // --- NORMAL BEHAVIOR ---
+                material.opacity += (0.9 - material.opacity) * 0.1; // Fade back in
+
+                let expansion = 1.0;
+                let targetColor = new THREE.Color(0x88aaff); // Default bluish
+
+                if (numHands > 0) {
+                    // 1. Rotation & Color (based on Hand 1)
+                    particles.rotation.y += 0.005 + (hand1Pos.x * 0.04);
+                    particles.rotation.x += (hand1Pos.y * 0.04);
+                    // Map X position (-1 to 1) to Hue (0 to 1 spectrum)
+                    targetColor.setHSL((hand1Pos.x + 1) / 2, 0.9, 0.6);
+
+                    // 2. Pinch/Explode (based on Hand 1)
+                    if (pinch1 < 0.06) expansion = 0.1; // Implode
+                    else if (pinch1 > 0.15) expansion = 1 + (pinch1 - 0.15) * 8; // Explode
+                } else {
+                    particles.rotation.y += 0.002; // Idle Rotate
+                    expansion = 1.0 + Math.sin(time * 1.5) * 0.1; // Idle Breathe
+                }
+
+                // LERP loop
+                for (let i = 0; i < PARTICLE_COUNT; i++) {
+                    const i3 = i * 3;
+                    // Move to target shape
+                    posArr[i3] += (targetPositions[i3] * expansion - posArr[i3]) * 0.08;
+                    posArr[i3+1] += (targetPositions[i3+1] * expansion - posArr[i3+1]) * 0.08;
+                    posArr[i3+2] += (targetPositions[i3+2] * expansion - posArr[i3+2]) * 0.08;
+
+                    // Blend colors if hand present
+                    if(numHands > 0) {
+                        colArr[i3] += (targetColor.r - colArr[i3]) * 0.06;
+                        colArr[i3+1] += (targetColor.g - colArr[i3+1]) * 0.06;
+                        colArr[i3+2] += (targetColor.b - colArr[i3+2]) * 0.06;
+                    }
+                }
+            }
+
+            geometry.attributes.position.needsUpdate = true;
+            geometry.attributes.color.needsUpdate = true;
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        animate();
+    </script>
+</body>
+</html>
