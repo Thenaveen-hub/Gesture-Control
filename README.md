@@ -5,6 +5,9 @@ Interactive 3D Universe controlled by real-time hand gestures. Built with Three.
 
 An immersive, real-time 3D particle system that responds to your hand movements via webcam. No mouse or keyboard required—just your hands and the stars.
 
+## Demo
+
+https://thenaveen-hub.github.io/Gesture-Control/ 
 
 ## ✨ Features
 - **🖐️ Hand Tracking:** Real-time gesture recognition using MediaPipe.
